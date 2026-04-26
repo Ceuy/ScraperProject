@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Newscraper v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0b;
+  --surface: #111113;
+  --surface2: #18181c;
+  --surface3: #1f1f24;
+  --border: rgba(255,255,255,0.06);
+  --border2: rgba(255,255,255,0.11);
+  --text: #dedad4;
+  --muted: #7a786f;
+  --faint: #3a3835;
+  --accent: #b8975a;
+  --accent2: #d4b47a;
+  --accent-dim: rgba(184,151,90,0.10);
+  --green: #4e9e6e;
+  --red: #c95252;
+  --blue: #4a7fb5;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;min-height:100vh}
+
+/* HEADER */
+header{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 1.5rem;gap:1rem;position:sticky;top:0;background:var(--bg);z-index:100}
+.logo{font-family:'Playfair Display',serif;font-size:20px;color:var(--text);display:flex;align-items:center;gap:8px}
+.logo-pip{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.logo-ver{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px}
+.header-spacer{flex:1}
+.header-info{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
+
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 52px)}
+
+/* SIDEBAR */
+.sidebar{border-right:1px solid var(--border);padding:1.25rem 1rem;display:flex;flex-direction:column;gap:1.5rem}
+.section-label{font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--faint);font-weight:500;margin-bottom:0.6rem}
+
+.source-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background 0.12s;user-select:none}
+.source-item:hover{background:var(--surface2)}
+.source-item.active{background:var(--surface3)}
+.src-check{width:14px;height:14px;border:1px solid var(--border2);border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.12s}
+.source-item.active .src-check{background:var(--accent);border-color:var(--accent)}
+.src-check svg{display:none}
+.source-item.active .src-check svg{display:block}
+.src-name{font-size:12px;color:var(--text);flex:1}
+.src-pages{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint)}
+
+.sidebar-sep{height:1px;background:var(--border);margin:0.25rem 0}
+
+.opt-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0}
+.opt-label{font-size:12px;color:var(--muted)}
+.opt-select{background:var(--surface2);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:12px;padding:3px 6px;font-family:'IBM Plex Sans',sans-serif;cursor:pointer}
+
+.action-btn{width:100%;border-radius:7px;padding:9px;font-size:12px;font-weight:500;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all 0.15s;border:none;margin-top:2px}
+.btn-scrape{background:var(--accent);color:#0a0a0b}
+.btn-scrape:hover{background:var(--accent2)}
+.btn-analyse{background:transparent;border:1px solid var(--accent) !important;color:var(--accent)}
+.btn-analyse:hover{background:var(--accent-dim)}
+.action-btn:disabled{opacity:0.35;cursor:not-allowed}
+
+.csv-select{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:5px;color:var(--text);font-size:11px;padding:4px 6px;font-family:'IBM Plex Mono',monospace;cursor:pointer;margin-bottom:6px}
+
+/* MAIN */
+.main{padding:1.25rem 1.5rem;overflow-x:hidden}
+
+/* STATS ROW */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:1.25rem}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.stat-label{font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+.stat-val{font-family:'IBM Plex Mono',monospace;font-size:20px;color:var(--text)}
+
+/* PROGRESS */
+.progress-wrap{margin-bottom:1rem;display:none}
+.progress-wrap.visible{display:block}
+.progress-track{height:2px;background:var(--border);border-radius:1px;overflow:hidden;margin-bottom:6px}
+.progress-fill{height:100%;background:var(--accent);border-radius:1px;width:0%;transition:width 0.4s}
+.progress-log{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);max-height:60px;overflow-y:auto;display:flex;flex-direction:column-reverse}
+.log-line{padding:1px 0}
+.log-line.ok{color:var(--green)}
+.log-line.err{color:var(--red)}
+
+/* TOP BAR */
+.top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
+.results-meta{font-size:12px;color:var(--muted)}
+.results-meta strong{color:var(--text)}
+.view-pills{display:flex;gap:5px}
+.view-pill{background:transparent;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all 0.12s}
+.view-pill.active,.view-pill:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.cat-pills{display:flex;gap:4px;flex-wrap:wrap}
+.cat-pill{background:transparent;border:1px solid var(--border);border-radius:12px;padding:2px 9px;font-size:11px;color:var(--muted);cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all 0.12s}
+.cat-pill:hover{border-color:var(--border2);color:var(--text)}
+.cat-pill.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+
+/* STORY CARDS */
+.story-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:6px;overflow:hidden;animation:fadeUp 0.25s ease forwards;opacity:0}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.story-header{display:grid;grid-template-columns:36px 1fr auto;gap:10px;padding:14px;cursor:pointer;align-items:start;transition:background 0.12s}
+.story-header:hover{background:var(--surface2)}
+.story-rank{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);padding-top:3px;text-align:right}
+.story-info{min-width:0}
+.story-topic{font-family:'Playfair Display',serif;font-size:17px;color:var(--text);line-height:1.35;margin-bottom:7px}
+.story-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.badge{border-radius:3px;padding:2px 6px;font-size:10px;font-weight:500;font-family:'IBM Plex Sans',sans-serif}
+.cat-badge{background:var(--surface3);color:var(--muted);border-radius:3px;padding:2px 6px;font-size:10px}
+.src-dot-row{display:flex;gap:3px;align-items:center}
+.src-dot{width:7px;height:7px;border-radius:50%}
+.story-right{text-align:right;flex-shrink:0}
+.coverage-bar{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.coverage-num{font-family:'IBM Plex Mono',monospace;font-size:18px;color:var(--accent)}
+.coverage-label{font-size:9px;color:var(--faint);letter-spacing:0.06em;text-transform:uppercase}
+
+/* ARTICLE LIST (expanded) */
+.article-list{border-top:1px solid var(--border);display:none}
+.story-card.open .article-list{display:block}
+.chevron{color:var(--faint);font-size:13px;transition:transform 0.2s;margin-top:2px}
+.story-card.open .chevron{transform:rotate(180deg)}
+.article-row{display:grid;grid-template-columns:10px 1fr;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);transition:background 0.12s;align-items:start}
+.article-row:last-child{border-bottom:none}
+.article-row:hover{background:var(--surface2)}
+.article-dot{width:7px;height:7px;border-radius:50%;margin-top:4px;flex-shrink:0}
+.article-body{min-width:0}
+.article-title{font-size:13px;color:var(--text);text-decoration:none;display:block;line-height:1.4;margin-bottom:3px}
+.article-title:hover{color:var(--accent)}
+.article-summary{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.article-meta{display:flex;gap:6px;font-size:11px;color:var(--faint)}
+
+/* EMPTY STATE */
+.empty{text-align:center;padding:4rem 1rem;color:var(--muted)}
+.empty-headline{font-family:'Playfair Display',serif;font-size:26px;color:var(--faint);margin-bottom:8px}
+.empty-sub{font-size:13px;line-height:1.6}
+
+/* PIPELINE STAGES */
+.pipeline{display:flex;gap:0;margin-bottom:1.25rem;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.pipeline-stage{flex:1;padding:8px 10px;text-align:center;font-size:11px;color:var(--muted);border-right:1px solid var(--border);transition:all 0.2s;position:relative}
+.pipeline-stage:last-child{border-right:none}
+.pipeline-stage.active{background:var(--accent-dim);color:var(--accent)}
+.pipeline-stage.done{color:var(--green)}
+.pipeline-stage .stage-icon{display:block;font-size:13px;margin-bottom:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-pip"></div>
+    Newscraper
+    <span class="logo-ver">v2</span>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="header-info" id="header-info">—</span>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div>
+      <div class="section-label">Sources</div>
+      <div id="source-list"></div>
+    </div>
+
+    <div class="sidebar-sep"></div>
+
+    <div>
+      <div class="section-label">Options</div>
+      <div class="opt-row">
+        <span class="opt-label">Articles per source</span>
+        <select class="opt-select" id="max-per">
+          <option value="15">15</option>
+          <option value="25" selected>25</option>
+          <option value="40">40</option>
+        </select>
+      </div>
+      <div class="opt-row">
+        <span class="opt-label">Top N stories</span>
+        <select class="opt-select" id="top-n">
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="0">All</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sidebar-sep"></div>
+
+    <div>
+      <div class="section-label">1 — Scrape</div>
+      <button class="action-btn btn-scrape" id="btn-scrape" onclick="startScrape()">Scrape sources</button>
+    </div>
+
+    <div>
+      <div class="section-label">2 — Analyse</div>
+      <select class="csv-select" id="csv-select"><option value="">— scrape first —</option></select>
+      <button class="action-btn btn-analyse" id="btn-analyse" onclick="startAnalyse()" disabled>Analyse with Mistral</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="stats-row" id="stats-row" style="display:none">
+      <div class="stat-card"><div class="stat-label">Articles scraped</div><div class="stat-val" id="stat-articles">0</div></div>
+      <div class="stat-card"><div class="stat-label">Story groups</div><div class="stat-val" id="stat-groups">0</div></div>
+      <div class="stat-card"><div class="stat-label">Sources active</div><div class="stat-val" id="stat-sources">0</div></div>
+      <div class="stat-card"><div class="stat-label">Last run</div><div class="stat-val" style="font-size:13px;padding-top:4px" id="stat-time">—</div></div>
+    </div>
+
+    <div class="pipeline" id="pipeline" style="display:none">
+      <div class="pipeline-stage" id="ps-scrape"><span class="stage-icon">⬇</span>Scrape pages</div>
+      <div class="pipeline-stage" id="ps-fetch"><span class="stage-icon">📄</span>Fetch articles</div>
+      <div class="pipeline-stage" id="ps-csv"><span class="stage-icon">📊</span>Save CSV</div>
+      <div class="pipeline-stage" id="ps-cluster"><span class="stage-icon">🔗</span>Cluster</div>
+      <div class="pipeline-stage" id="ps-label"><span class="stage-icon">🤖</span>Mistral labels</div>
+      <div class="pipeline-stage" id="ps-rank"><span class="stage-icon">🏆</span>Rank</div>
+    </div>
+
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-log" id="progress-log"></div>
+    </div>
+
+    <div class="top-bar" id="top-bar" style="display:none">
+      <div class="results-meta" id="results-meta"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="cat-pills" id="cat-pills"></div>
+      </div>
+    </div>
+
+    <div id="results-area">
+      <div class="empty">
+        <div class="empty-headline">No results yet</div>
+        <div class="empty-sub">Select sources, click <em>Scrape sources</em>,<br>then <em>Analyse with Mistral</em> to see top stories.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+let sourceMeta = {};
+let activeSources = new Set();
+let allGroups = [];
+let activeCategory = 'All';
+
+async function init() {
+  const res = await fetch('/api/sources');
+  sourceMeta = await res.json();
+  const list = document.getElementById('source-list');
+  Object.entries(sourceMeta).forEach(([id, s]) => {
+    activeSources.add(id);
+    const el = document.createElement('div');
+    el.className = 'source-item active';
+    el.id = 'src-' + id;
+    el.innerHTML = `
+      <div class="src-check">
+        <svg width="8" height="7" viewBox="0 0 8 7" fill="none">
+          <path d="M1 3.5L3 5.5L7 1" stroke="#0a0a0b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="src-name">${s.label}</span>
+      <span class="src-pages">${s.pages}p</span>`;
+    el.onclick = () => {
+      if (activeSources.has(id)) { if (activeSources.size > 1) { activeSources.delete(id); el.classList.remove('active'); } }
+      else { activeSources.add(id); el.classList.add('active'); }
+    };
+    list.appendChild(el);
+  });
+  await loadCsvFiles();
+}
+
+async function loadCsvFiles() {
+  const res = await fetch('/api/csvfiles');
+  const data = await res.json();
+  const sel = document.getElementById('csv-select');
+  if (data.files.length) {
+    sel.innerHTML = data.files.map((f,i) => `<option value="${f}" ${i===0?'selected':''}>${f}</option>`).join('');
+    document.getElementById('btn-analyse').disabled = false;
+  }
+}
+
+function log(msg, type='') {
+  const el = document.getElementById('progress-log');
+  const line = document.createElement('div');
+  line.className = 'log-line' + (type ? ' ' + type : '');
+  line.textContent = msg;
+  el.prepend(line);
+  if (el.children.length > 20) el.lastChild.remove();
+}
+
+function setProgress(pct) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+function setStage(stage, state) {
+  const el = document.getElementById('ps-' + stage);
+  if (!el) return;
+  el.className = 'pipeline-stage ' + state;
+}
+
+async function startScrape() {
+  const btn = document.getElementById('btn-scrape');
+  btn.disabled = true; btn.textContent = 'Scraping…';
+  document.getElementById('pipeline').style.display = 'flex';
+  document.getElementById('progress-wrap').classList.add('visible');
+  document.getElementById('results-area').innerHTML = '';
+  setProgress(0);
+  setStage('scrape', 'active');
+  log('Starting scrape…');
+
+  const maxPer = parseInt(document.getElementById('max-per').value);
+  let fetchedCount = 0, totalToFetch = 0;
+
+  const res = await fetch('/api/scrape', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ sources: [...activeSources], max_per_source: maxPer })
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, {stream: true});
+    const lines = buf.split('\n\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const msg = JSON.parse(line.slice(5).trim());
+      if (msg.stage === 'collecting') { setStage('scrape', 'active'); log('Collecting article URLs…'); setProgress(10); }
+      else if (msg.stage === 'urls_ready') { log(`[${msg.source}] found ${msg.value} articles`); }
+      else if (msg.stage === 'fetching') { setStage('scrape', 'done'); setStage('fetch', 'active'); totalToFetch = msg.value; log(`Fetching ${totalToFetch} article pages…`); setProgress(20); }
+      else if (msg.stage === 'fetched') { fetchedCount = msg.value; const pct = 20 + Math.round((fetchedCount/Math.max(totalToFetch,1))*60); setProgress(pct); if (fetchedCount % 10 === 0) log(`Fetched ${fetchedCount}/${totalToFetch}…`); }
+      else if (msg.stage === 'done') { setStage('fetch', 'done'); setStage('csv', 'done'); setProgress(90); log(`Done — ${msg.value} articles`, 'ok'); }
+      else if (msg.stage === 'complete') {
+        setProgress(100);
+        log(`Saved ${msg.total} articles to ${msg.csv}`, 'ok');
+        document.getElementById('stat-articles').textContent = msg.total;
+        document.getElementById('stat-sources').textContent = Object.keys(msg.stats).length;
+        document.getElementById('stats-row').style.display = 'grid';
+        await loadCsvFiles();
+        document.getElementById('btn-analyse').disabled = false;
+      }
+      else if (msg.stage === 'error') { log('Error: ' + msg.message, 'err'); }
+    }
+  }
+
+  btn.disabled = false; btn.textContent = 'Scrape sources';
+}
+
+async function startAnalyse() {
+  const btn = document.getElementById('btn-analyse');
+  btn.disabled = true; btn.textContent = 'Analysing…';
+  document.getElementById('pipeline').style.display = 'flex';
+  document.getElementById('progress-wrap').classList.add('visible');
+  setProgress(0);
+  setStage('cluster', 'active');
+  log('Reading CSV and clustering articles…');
+
+  const csvFile = document.getElementById('csv-select').value;
+  const topN = parseInt(document.getElementById('top-n').value);
+  let labelCount = 0, totalClusters = 0;
+
+  const res = await fetch('/api/analyse', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ csv: csvFile, top_n: topN })
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, {stream: true});
+    const lines = buf.split('\n\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;
+      const msg = JSON.parse(line.slice(5).trim());
+      if (msg.stage === 'cluster') { setStage('cluster', 'active'); log(`Clustering ${msg.value} articles by text similarity…`); setProgress(15); }
+      else if (msg.stage === 'label') { totalClusters = msg.value; setStage('cluster', 'done'); setStage('label', 'active'); log(`Sending ${totalClusters} clusters to Mistral in parallel…`); setProgress(30); }
+      else if (msg.stage === 'labelled') { labelCount++; const pct = 30 + Math.round((labelCount/Math.max(totalClusters,1))*55); setProgress(pct); }
+      else if (msg.stage === 'done') { setStage('label', 'done'); setStage('rank', 'active'); log(`Ranking ${msg.value} story groups…`); setProgress(90); }
+      else if (msg.stage === 'complete') {
+        setStage('rank', 'done');
+        setProgress(100);
+        allGroups = msg.groups;
+        renderResults(allGroups);
+        log(`Analysis complete — ${msg.groups.length} story groups`, 'ok');
+        document.getElementById('stat-groups').textContent = msg.groups.length;
+        document.getElementById('stat-time').textContent = new Date().toLocaleTimeString();
+        document.getElementById('stats-row').style.display = 'grid';
+        document.getElementById('header-info').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        setTimeout(() => document.getElementById('progress-wrap').classList.remove('visible'), 2000);
+      }
+      else if (msg.stage === 'error') { log('Error: ' + msg.message, 'err'); }
+    }
+  }
+
+  btn.disabled = false; btn.textContent = 'Analyse with Mistral';
+}
+
+function renderResults(groups) {
+  const filtered = activeCategory === 'All' ? groups : groups.filter(g => g.category === activeCategory);
+  const cats = ['All', ...new Set(groups.map(g => g.category))].sort((a,b) => a==='All'?-1:b==='All'?1:a.localeCompare(b));
+
+  document.getElementById('top-bar').style.display = 'flex';
+  document.getElementById('results-meta').innerHTML = `Showing <strong>${filtered.length}</strong> story groups`;
+  document.getElementById('cat-pills').innerHTML = cats.map(c =>
+    `<button class="cat-pill ${c===activeCategory?'active':''}" onclick="setCategory('${c}')">${c}</button>`
+  ).join('');
+
+  const area = document.getElementById('results-area');
+  if (!filtered.length) {
+    area.innerHTML = '<div class="empty"><div class="empty-headline">No stories</div><div class="empty-sub">Try selecting a different category.</div></div>';
+    return;
+  }
+
+  area.innerHTML = filtered.map((g, i) => {
+    const dots = [...new Set(g.articles.map(a => a.source_color))].map(c =>
+      `<div class="src-dot" style="background:${c}"></div>`
+    ).join('');
+    const articles = g.articles.map(a => `
+      <div class="article-row">
+        <div class="article-dot" style="background:${a.source_color}"></div>
+        <div class="article-body">
+          <a class="article-title" href="${a.url}" target="_blank" rel="noopener">${a.title}</a>
+          <div class="article-summary">${a.summary}</div>
+          <div class="article-meta">
+            <span style="color:${a.source_color}">${a.source_label}</span>
+            <span>${a.date}</span>
+          </div>
+        </div>
+      </div>`).join('');
+
+    return `
+    <div class="story-card ${g.source_count > 1 ? 'open' : ''}" id="grp-${i}" style="animation-delay:${i*0.04}s">
+      <div class="story-header" onclick="toggleCard('grp-${i}')">
+        <div class="story-rank">${String(i+1).padStart(2,'0')}</div>
+        <div class="story-info">
+          <div class="story-topic">${g.topic}</div>
+          <div class="story-meta">
+            <span class="cat-badge">${g.category}</span>
+            <span class="badge" style="background:var(--accent-dim);color:var(--accent);font-family:'IBM Plex Mono',monospace">${g.count} art.</span>
+            <div class="src-dot-row">${dots}</div>
+          </div>
+        </div>
+        <div class="story-right">
+          <div class="coverage-bar">
+            <div class="coverage-num">${g.source_count}</div>
+            <div class="coverage-label">source${g.source_count !== 1 ? 's' : ''}</div>
+          </div>
+          <div class="chevron">⌄</div>
+        </div>
+      </div>
+      <div class="article-list">${articles}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleCard(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+function setCategory(cat) {
+  activeCategory = cat;
+  renderResults(allGroups);
+}
+
+init();
+</script>
+</body>
+</html>
