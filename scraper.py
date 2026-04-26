@@ -380,12 +380,12 @@ def run_scrape(source_ids, max_per_source=25, progress_cb=None, data_dir="data")
     all_articles = []
     stats = {}
 
-    # Phase 1: collect article URLs from all sources in parallel
+    # Phase 1: collect article URLs — limit concurrency for free tier RAM
     if progress_cb:
         progress_cb("all", "collecting", 0)
 
     url_map = {}  # source_id -> [candidates]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         futures = {ex.submit(collect_article_urls, sid, progress_cb): sid for sid in source_ids}
         for future in concurrent.futures.as_completed(futures):
             sid = futures[future]
@@ -394,13 +394,13 @@ def run_scrape(source_ids, max_per_source=25, progress_cb=None, data_dir="data")
             if progress_cb:
                 progress_cb(sid, "urls_ready", len(candidates))
 
-    # Phase 2: fetch article text — all in parallel across all sources
+    # Phase 2: fetch article text — throttled to avoid OOM
     if progress_cb:
         progress_cb("all", "fetching", sum(len(v) for v in url_map.values()))
 
     fetch_tasks = [(c, sid) for sid, candidates in url_map.items() for c in candidates]
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(fetch_article, c, sid): (c, sid) for c, sid in fetch_tasks}
         done = 0
         for future in concurrent.futures.as_completed(futures):

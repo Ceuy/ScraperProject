@@ -3,13 +3,13 @@ services:
     name: newsscraper
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --timeout 120 --bind 0.0.0.0:$PORT
+    startCommand: gunicorn app:app --workers 2 --worker-class gevent --timeout 300 --bind 0.0.0.0:$PORT
     envVars:
       - key: GROQ_API_KEY
-        sync: false        # you set this manually in Render dashboard — never committed to git
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.0
     disk:
       name: data
       mountPath: /data
-      sizeGB: 1            # stores your CSV files persistently
+      sizeGB: 1

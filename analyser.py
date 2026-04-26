@@ -15,7 +15,7 @@ from collections import Counter
 # Falls back to local Ollama if not set (local development)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "mistral-saba-24b"   # fast Groq-hosted Mistral
+GROQ_MODEL = "mixtral-8x7b-32768"   # correct Groq-hosted Mistral model name
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "mistral"
 
@@ -349,7 +349,7 @@ def analyse(csv_path, top_n=10, progress_cb=None):
     # Step 3: label with Mistral in parallel
     story_groups = [None] * len(raw_groups)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         futures = {}
         for idx, group in enumerate(raw_groups):
             pairs = [(articles[i]["title"], articles[i]["summary"]) for i in group]
