@@ -1,14 +1,26 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploy: connect this repo in the Render Dashboard and apply the Blueprint,
+# or create a Web Service manually using the settings below.
+#
+# Post-deploy:
+#   1. Set GROQ_API_KEY in the service Environment tab (sync: false below).
+#   2. Confirm the persistent disk is mounted at /data (app.py auto-detects it).
+#   3. Open the service URL and run Scrape → Analyse from the UI.
+
 services:
   - type: web
-    name: newsscraper
+    name: newscraper
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --workers 2 --worker-class gevent --timeout 300 --bind 0.0.0.0:$PORT
+    healthCheckPath: /
     envVars:
       - key: GROQ_API_KEY
         sync: false
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: "3.11.0"
     disk:
       name: data
       mountPath: /data

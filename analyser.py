@@ -1,21 +1,24 @@
 """
 analyser.py
-Stage 2: read CSV → cluster articles by story using text similarity → label with Mistral → rank top N
+Stage 2: read CSV → cluster articles by text similarity → label clusters with Groq/Mistral → rank top N
 """
 
 import csv
-import re
+import logging
 import os
-import requests
+import re
 import concurrent.futures
-from collections import Counter
+
+import requests
+
+logger = logging.getLogger(__name__)
 
 # --- AI backend: Groq (cloud) or Ollama (local fallback) ---
 # Groq is used when GROQ_API_KEY env var is set (production/Render)
 # Falls back to local Ollama if not set (local development)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "mixtral-8x7b-32768"   # correct Groq-hosted Mistral model name
+GROQ_MODEL = "mixtral-8x7b-32768"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "mistral"
 
@@ -236,7 +239,7 @@ def _call_ollama(prompt):
     return res.json().get("response", "").strip()
 
 
-def label_cluster_mistral(titles_and_summaries, cluster_idx):
+def label_cluster(titles_and_summaries, cluster_idx):
     """
     Ask the AI to label a single story cluster.
     Uses Groq if GROQ_API_KEY is set, otherwise falls back to local Ollama.
@@ -278,8 +281,8 @@ CATEGORY: <category>"""
                         category = valid
                         break
         return cluster_idx, topic, category
-    except Exception as e:
-        print(f"  [Mistral] label error cluster {cluster_idx}: {e}")
+    except Exception as exc:
+        logger.warning("Label error cluster %d: %s", cluster_idx, exc)
         return cluster_idx, None, None
 
 
@@ -322,8 +325,8 @@ def analyse(csv_path, top_n=10, progress_cb=None):
     Full analysis pipeline:
     1. Read CSV
     2. Cluster by text similarity
-    3. Label each cluster with Mistral (parallel)
-    4. Rank by count
+    3. Label each cluster with Groq/Ollama (parallel)
+    4. Rank by source breadth, then article count
     5. Return top_n story groups with all article links
     """
     # Step 1: read CSV
@@ -346,14 +349,14 @@ def analyse(csv_path, top_n=10, progress_cb=None):
     if progress_cb:
         progress_cb("label", len(raw_groups))
 
-    # Step 3: label with Mistral in parallel
+    # Step 3: label clusters in parallel
     story_groups = [None] * len(raw_groups)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = {}
         for idx, group in enumerate(raw_groups):
             pairs = [(articles[i]["title"], articles[i]["summary"]) for i in group]
-            futures[ex.submit(label_cluster_mistral, pairs, idx)] = idx
+            futures[executor.submit(label_cluster, pairs, idx)] = idx
 
         for future in concurrent.futures.as_completed(futures):
             idx, topic, category = future.result()

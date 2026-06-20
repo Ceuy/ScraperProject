@@ -1,16 +1,21 @@
 """
-app.py — Flask server
+app.py — Flask web frontend for the news aggregation pipeline
 """
 
-from flask import Flask, jsonify, render_template, request, Response, stream_with_context
-from flask_cors import CORS
 import json
-import threading
-import queue
+import logging
 import os
+import queue
+import threading
+import traceback
 
-from scraper import SOURCES, run_scrape, list_csv_files
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask_cors import CORS
+
 from analyser import analyse
+from scraper import SOURCES, list_csv_files, run_scrape
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
@@ -52,6 +57,7 @@ def scrape():
     data = request.get_json() or {}
     source_ids = [s for s in data.get("sources", list(SOURCES.keys())) if s in SOURCES]
     max_per = int(data.get("max_per_source", 25))
+    force = bool(data.get("force", False))
     q = queue.Queue()
 
     def progress_cb(source_id, stage, value):
@@ -59,14 +65,23 @@ def scrape():
 
     def run():
         try:
-            csv_path, total, stats = run_scrape(
-                source_ids, max_per_source=max_per,
-                progress_cb=progress_cb, data_dir=DATA_DIR
+            csv_path, total, stats, cached = run_scrape(
+                source_ids,
+                max_per_source=max_per,
+                progress_cb=progress_cb,
+                data_dir=DATA_DIR,
+                force=force,
             )
-            q.put({"stage": "complete", "csv": os.path.basename(csv_path),
-                   "total": total, "stats": stats})
-        except Exception as e:
-            q.put({"stage": "error", "message": str(e)})
+            q.put({
+                "stage": "complete",
+                "csv": os.path.basename(csv_path),
+                "total": total,
+                "cached": cached,
+                "stats": {sid: s.to_dict() for sid, s in stats.items()},
+            })
+        except Exception as exc:
+            logger.exception("Scrape failed")
+            q.put({"stage": "error", "message": str(exc)})
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -78,10 +93,13 @@ def scrape():
                 if msg.get("stage") in ("complete", "error"):
                     break
             except queue.Empty:
-                yield "data: {\"stage\":\"heartbeat\"}\n\n"
+                yield 'data: {"stage":"heartbeat"}\n\n'
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/analyse", methods=["POST"])
@@ -136,9 +154,10 @@ def analyse_route():
                 _latest_results["csv"] = csv_file
                 _latest_results["total_articles"] = sum(g["count"] for g in serialised)
             q.put({"stage": "complete", "groups": serialised})
-        except Exception as e:
-            import traceback; traceback.print_exc()
-            q.put({"stage": "error", "message": str(e)})
+        except Exception as exc:
+            traceback.print_exc()
+            logger.exception("Analysis failed")
+            q.put({"stage": "error", "message": str(exc)})
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -150,10 +169,13 @@ def analyse_route():
                 if msg.get("stage") in ("complete", "error"):
                     break
             except queue.Empty:
-                yield "data: {\"stage\":\"heartbeat\"}\n\n"
+                yield 'data: {"stage":"heartbeat"}\n\n'
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/results/latest")
@@ -163,5 +185,6 @@ def latest_results():
 
 
 if __name__ == "__main__":
-    print("\n  Newscraper v2 running at http://localhost:5000\n")
+    logging.basicConfig(level=logging.INFO)
+    print("\n  Newscraper running at http://localhost:5000\n")
     app.run(debug=True, port=5000, threaded=True)
