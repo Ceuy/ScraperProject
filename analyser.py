@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Falls back to local Ollama if not set (local development)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL = "mixtral-8x7b-32768"
+GROQ_MODEL = "llama-3.1-8b-instant"  # mixtral-8x7b-32768 was decommissioned by Groq in Mar 2025
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "mistral"
 
@@ -263,12 +263,21 @@ Reply with ONLY these two lines:
 TOPIC: <label>
 CATEGORY: <category>"""
 
-    try:
-        if GROQ_API_KEY:
+    raw = None
+    if GROQ_API_KEY:
+        try:
             raw = _call_groq(prompt)
-        else:
-            raw = _call_ollama(prompt)
+        except Exception as exc:
+            logger.warning("Groq call failed for cluster %d, falling back to Ollama: %s", cluster_idx, exc)
 
+    if raw is None:
+        try:
+            raw = _call_ollama(prompt)
+        except Exception as exc:
+            logger.warning("Label error cluster %d: %s", cluster_idx, exc)
+            return cluster_idx, None, None
+
+    try:
         topic, category = None, None
         for line in raw.splitlines():
             line = line.strip()

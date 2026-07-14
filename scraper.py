@@ -44,7 +44,7 @@ SOURCES = {
             "https://www.bbc.com/news/world",
             "https://www.bbc.com/news/business",
             "https://www.bbc.com/news/technology",
-            "https://www.bbc.com/news/science-environment",
+            "https://www.bbc.com/news/science_and_environment",
         ],
         "base": "https://www.bbc.com",
         "color": "#bb1919",
@@ -99,7 +99,7 @@ SOURCES = {
             "https://www.aljazeera.com",
             "https://www.aljazeera.com/news",
             "https://www.aljazeera.com/economy",
-            "https://www.aljazeera.com/politics",
+            "https://www.aljazeera.com/tag/politics/",
         ],
         "base": "https://www.aljazeera.com",
         "color": "#8b0000",
@@ -124,7 +124,7 @@ SOURCES = {
         "label": "DW News",
         "pages": [
             "https://www.dw.com/en/top-stories/s-9097",
-            "https://www.dw.com/en/world/s-1429",
+            "https://www.dw.com/en/middle-east/s-14207",
             "https://www.dw.com/en/europe/s-1433",
             "https://www.dw.com/en/business/s-1431",
         ],
@@ -149,7 +149,7 @@ SOURCES = {
         "label": "Euronews",
         "pages": [
             "https://www.euronews.com/news/europe",
-            "https://www.euronews.com/news/world",
+            "https://www.euronews.com/tag/world-news",
             "https://www.euronews.com/business",
         ],
         "base": "https://www.euronews.com",
@@ -202,6 +202,15 @@ def polite_get(url: str, timeout: int = 12) -> requests.Response:
         return response
 
 
+def classify_http_error(code: int) -> str:
+    """Map a status code to a human-readable reason bucket."""
+    if code in (401, 403, 406, 429):
+        return "likely blocking scrapers"
+    if code in (404, 410):
+        return "URL moved or removed"
+    return "server error"
+
+
 # --- Structured fetch results ---
 
 @dataclass
@@ -212,6 +221,7 @@ class FetchResult:
     row: Optional[dict] = None
     error: Optional[str] = None
     attempts: int = 1
+    http_status: Optional[int] = None
 
     def to_error_dict(self) -> dict:
         return {
@@ -384,8 +394,12 @@ def collect_article_urls(
     seen_titles: set[str] = set()
     candidates: list[dict] = []
 
+    base_netloc = urlparse(base).netloc
+
     for page_url in src["pages"]:
         try:
+            page_netloc = urlparse(page_url).netloc
+            page_origin = f"{urlparse(page_url).scheme}://{page_netloc}"
             response = polite_get(page_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
@@ -401,7 +415,10 @@ def collect_article_urls(
 
                 href = anchor["href"]
                 if href.startswith("/"):
-                    href = urljoin(base, href)
+                    # Resolve relative to the page we scraped it from, not the
+                    # source's global base — some sources (e.g. Politico) serve
+                    # multiple regional domains under one source_id.
+                    href = urljoin(page_origin, href)
                 elif not href.startswith("http"):
                     continue
 
@@ -409,9 +426,10 @@ def collect_article_urls(
                     continue
                 if not is_article_url(href, base):
                     continue
-                base_netloc = urlparse(base).netloc
                 href_netloc = urlparse(href).netloc
-                if href_netloc != base_netloc and base_netloc not in href_netloc:
+                same_as_base = href_netloc == base_netloc or base_netloc in href_netloc
+                same_as_page = href_netloc == page_netloc or page_netloc in href_netloc
+                if not same_as_base and not same_as_page:
                     continue
 
                 seen_urls.add(href)
@@ -419,13 +437,19 @@ def collect_article_urls(
                 candidates.append({"url": href, "title": title})
 
         except Exception as exc:
-            logger.warning("[%s] page error (%s): %s", source_id, page_url, exc)
+            reason = None
+            if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                reason = classify_http_error(exc.response.status_code)
+            elif isinstance(exc, requests.Timeout):
+                reason = "request timed out"
+            error_msg = f"{exc} ({reason})" if reason else str(exc)
+            logger.warning("[%s] page error (%s): %s", source_id, page_url, error_msg)
             if stats is not None:
                 stats.page_errors += 1
                 stats.errors.append({
                     "stage": "collect",
                     "page_url": page_url,
-                    "error": str(exc),
+                    "error": error_msg,
                 })
 
     if progress_cb:
@@ -449,11 +473,14 @@ def fetch_article(candidate: dict, source_id: str) -> FetchResult:
     try:
         response = polite_get(url)
         if response.status_code >= 400:
+            code = response.status_code
+            reason = classify_http_error(code)
             return FetchResult(
                 status="http_error",
                 url=url,
                 source_id=source_id,
-                error=f"HTTP {response.status_code}",
+                error=f"HTTP {code} ({reason})",
+                http_status=code,
             )
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -529,8 +556,15 @@ def fetch_article_with_retry(candidate: dict, source_id: str) -> FetchResult:
 
         if result.status == "ok":
             return result
-        if result.status in ("js_rendered", "http_error"):
+        if result.status == "js_rendered":
             return result
+        if result.status == "http_error":
+            # 4xx (other than 429) won't succeed on retry — the URL moved,
+            # is gone, or the source is actively blocking us. 5xx/429 are
+            # transient, so give those a retry.
+            is_transient = result.http_status == 429 or (result.http_status or 0) >= 500
+            if not is_transient:
+                return result
         if attempt <= FETCH_MAX_RETRIES:
             time.sleep(FETCH_RETRY_BACKOFF ** (attempt - 1))
 

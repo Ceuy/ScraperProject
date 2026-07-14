@@ -339,6 +339,10 @@ async function startScrape() {
       else if (msg.stage === 'complete') {
         setProgress(100);
         log(`Saved ${msg.total} articles to ${msg.csv}`, 'ok');
+        for (const [sid, s] of Object.entries(msg.stats || {})) {
+          const type = s.articles_saved > 0 ? (s.dropped_total > 0 ? '' : 'ok') : 'err';
+          log(`  ${sid}: ${s.articles_saved} saved, ${s.dropped_total} dropped (${s.js_rendered_pct}% JS-miss)`, type);
+        }
         document.getElementById('stat-articles').textContent = msg.total;
         document.getElementById('stat-sources').textContent = Object.keys(msg.stats).length;
         document.getElementById('stats-row').style.display = 'grid';

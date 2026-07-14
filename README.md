@@ -5,7 +5,7 @@ A Python news aggregation pipeline that scrapes headlines from 10 international 
 ## What it does
 
 1. **Scrape** — Collects article URLs from source homepages (BBC, Reuters, Guardian, AP, Al Jazeera, NYT, DW, France 24, Euronews, Politico), fetches full article text, and saves structured rows to a dated CSV.
-2. **Analyse** — Groups articles by text similarity and named-entity overlap, then labels each cluster using Groq (Mixtral) in production or local Ollama during development.
+2. **Analyse** — Groups articles by text similarity and named-entity overlap, then labels each cluster using Groq (Llama 3.1 8B) in production or local Ollama during development.
 3. **Display** — A Flask frontend lets you trigger scrapes, run analysis, and browse the top story clusters ranked by how many outlets covered them.
 
 ## Architecture
@@ -130,6 +130,12 @@ The app auto-detects Render's `/data` mount and stores CSVs there so they surviv
 - Scraping from Render's shared IPs can trigger blocks on some news sites. For portfolio demos, pre-scrape locally and upload CSVs, or scrape a subset of sources.
 - Long scrape/analyse jobs use Server-Sent Events (SSE); the 300 s Gunicorn timeout accommodates this.
 - Free-tier instances sleep after inactivity; first request may be slow.
+
+## Known issues
+
+- **France 24 actively blocks scrapers.** Every page returns HTTP 403 from an Imperva/Incapsula-style "Access denied" WAF page, not a simple User-Agent check — confirmed with full browser-like headers. Header/UA changes won't fix this; the source is currently expected to yield 0 articles.
+- **News sites periodically restructure URLs.** BBC, Al Jazeera, DW, and Euronews have all changed section paths at least once (see `SOURCES` in `scraper.py`); expect occasional 404s that need a URL update.
+- **Memory headroom on Render's Free/Starter plans is tight.** Per-domain rate limiting plus 10 sources × up to 25 articles each can approach the RAM ceiling on constrained plans. If you see `SIGKILL`/OOM in Render logs, move to a plan with more memory (Standard or higher) or lower `max_per_source`.
 
 ## Project structure
 
