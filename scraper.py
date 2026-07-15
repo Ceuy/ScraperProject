@@ -402,7 +402,7 @@ def collect_article_urls(
             page_origin = f"{urlparse(page_url).scheme}://{page_netloc}"
             response = polite_get(page_url)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
+            soup = BeautifulSoup(response.text, "lxml")
 
             for tag in soup.find_all(["h1", "h2", "h3", "h4"]):
                 title = re.sub(r"\s+", " ", tag.get_text()).strip()
@@ -483,7 +483,7 @@ def fetch_article(candidate: dict, source_id: str) -> FetchResult:
                 http_status=code,
             )
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        soup = BeautifulSoup(response.text, "lxml")
 
         page_title = soup.find("title")
         title = candidate["title"]

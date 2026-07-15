@@ -27,6 +27,12 @@ os.makedirs(DATA_DIR, exist_ok=True)
 _latest_results = {"groups": [], "csv": "", "total_articles": 0, "stats": {}}
 _results_lock = threading.Lock()
 
+# Guards against overlapping scrape/analyse runs, which would each spin up
+# their own thread pools and roughly double peak memory at once — a likely
+# contributor to OOM kills under concurrent requests on constrained plans.
+_job_lock = threading.Lock()
+_job_in_progress = {"scrape": False, "analyse": False}
+
 
 @app.route("/")
 def index():
@@ -54,6 +60,11 @@ def csv_files():
 
 @app.route("/api/scrape", methods=["POST"])
 def scrape():
+    with _job_lock:
+        if _job_in_progress["scrape"]:
+            return jsonify({"error": "A scrape is already running. Wait for it to finish."}), 409
+        _job_in_progress["scrape"] = True
+
     data = request.get_json() or {}
     source_ids = [s for s in data.get("sources", list(SOURCES.keys())) if s in SOURCES]
     max_per = int(data.get("max_per_source", 25))
@@ -82,6 +93,9 @@ def scrape():
         except Exception as exc:
             logger.exception("Scrape failed")
             q.put({"stage": "error", "message": str(exc)})
+        finally:
+            with _job_lock:
+                _job_in_progress["scrape"] = False
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -104,6 +118,11 @@ def scrape():
 
 @app.route("/api/analyse", methods=["POST"])
 def analyse_route():
+    with _job_lock:
+        if _job_in_progress["analyse"]:
+            return jsonify({"error": "An analysis is already running. Wait for it to finish."}), 409
+        _job_in_progress["analyse"] = True
+
     data = request.get_json() or {}
     csv_file = data.get("csv", "")
     top_n = int(data.get("top_n", 10))
@@ -111,11 +130,13 @@ def analyse_route():
     if not csv_file:
         files = list_csv_files(DATA_DIR)
         if not files:
+            _job_in_progress["analyse"] = False
             return jsonify({"error": "No CSV files found. Run a scrape first."}), 400
         csv_file = files[0]
 
     csv_path = os.path.join(DATA_DIR, csv_file)
     if not os.path.exists(csv_path):
+        _job_in_progress["analyse"] = False
         return jsonify({"error": f"File not found: {csv_file}"}), 404
 
     q = queue.Queue()
@@ -158,6 +179,9 @@ def analyse_route():
             traceback.print_exc()
             logger.exception("Analysis failed")
             q.put({"stage": "error", "message": str(exc)})
+        finally:
+            with _job_lock:
+                _job_in_progress["analyse"] = False
 
     threading.Thread(target=run, daemon=True).start()
 

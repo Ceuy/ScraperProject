@@ -119,7 +119,7 @@ The project includes a [`render.yaml`](render.yaml) Blueprint for one-click depl
 2. Apply the Blueprint or create a **Web Service** manually:
    - **Runtime:** Python 3.11
    - **Build command:** `pip install -r requirements.txt`
-   - **Start command:** `gunicorn app:app --workers 2 --worker-class gevent --timeout 300 --bind 0.0.0.0:$PORT`
+   - **Start command:** `gunicorn app:app --workers 1 --worker-class gevent --timeout 300 --max-requests 40 --max-requests-jitter 10 --bind 0.0.0.0:$PORT`
 3. Add a **Persistent Disk** mounted at `/data` (1 GB is enough for CSV storage).
 4. Set `GROQ_API_KEY` in the service environment variables.
 
@@ -135,7 +135,7 @@ The app auto-detects Render's `/data` mount and stores CSVs there so they surviv
 
 - **France 24 actively blocks scrapers.** Every page returns HTTP 403 from an Imperva/Incapsula-style "Access denied" WAF page, not a simple User-Agent check — confirmed with full browser-like headers. Header/UA changes won't fix this; the source is currently expected to yield 0 articles.
 - **News sites periodically restructure URLs.** BBC, Al Jazeera, DW, and Euronews have all changed section paths at least once (see `SOURCES` in `scraper.py`); expect occasional 404s that need a URL update.
-- **Memory headroom on Render's Free/Starter plans is tight.** Per-domain rate limiting plus 10 sources × up to 25 articles each can approach the RAM ceiling on constrained plans. If you see `SIGKILL`/OOM in Render logs, move to a plan with more memory (Standard or higher) or lower `max_per_source`.
+- **Memory headroom is tight even on Standard (1 CPU / 2 GB).** OOM `SIGKILL`s have been observed there too. Mitigations applied: `gunicorn` now runs a single worker (`--workers 1`) so `/api/scrape` and `/api/analyse` can't run twice at once across processes (there's an in-process lock in `app.py`, which only holds within one process — hence dropping to 1 worker), and `--max-requests 40` recycles the worker periodically as a safety net against any slow memory growth. If OOM recurs, check Render's memory graph for a gradual climb (leak) vs. a sudden spike (one scrape run alone exceeding the limit) before assuming it's fixed — the exact root cause wasn't confirmed via live profiling, just inferred from logs.
 
 ## Project structure
 
